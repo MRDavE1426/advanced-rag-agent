@@ -3,8 +3,8 @@ import uuid
 from pathlib import Path
 
 from langchain.storage import LocalFileStore, create_kv_docstore
+from langchain_cohere import CohereEmbeddings
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
@@ -12,7 +12,25 @@ from qdrant_client.models import Distance, VectorParams
 
 from app import config
 
-EMBEDDING_DIMENSIONS = 1536  # text-embedding-3-small
+_EMBEDDING_DIMENSIONS = {
+    "cohere": 1024,  # embed-english-v3.0
+}
+
+
+def embedding_dimensions() -> int:
+    """Return the vector dimension for the configured provider/model pair."""
+    provider = config.EMBEDDING_PROVIDER
+    if provider not in _EMBEDDING_DIMENSIONS:
+        raise ValueError("EMBEDDING_PROVIDER must be 'cohere'")
+    if provider == "cohere" and config.COHERE_EMBEDDING_MODEL != "embed-english-v3.0":
+        raise ValueError("Only Cohere's embed-english-v3.0 model is supported by this index configuration")
+    return _EMBEDDING_DIMENSIONS[provider]
+
+
+def collection_name() -> str:
+    """Keep different embedding spaces in separate Qdrant collections."""
+    embedding_dimensions()  # validate the configured model before touching Qdrant
+    return "rag_children_cohere" if config.EMBEDDING_PROVIDER == "cohere" else "rag_children"
 
 parent_splitter = RecursiveCharacterTextSplitter(chunk_size=config.PARENT_CHUNK_SIZE, chunk_overlap=0)
 child_splitter = RecursiveCharacterTextSplitter(chunk_size=config.CHILD_CHUNK_SIZE, chunk_overlap=0)
@@ -33,16 +51,26 @@ def build_qdrant_client() -> QdrantClient:
 
 
 def build_vector_store(client: QdrantClient, embeddings) -> QdrantVectorStore:
-    if not client.collection_exists(config.COLLECTION_NAME):
+    name = collection_name()
+    if not client.collection_exists(name):
         client.create_collection(
-            collection_name=config.COLLECTION_NAME,
-            vectors_config=VectorParams(size=EMBEDDING_DIMENSIONS, distance=Distance.COSINE),
+            collection_name=name,
+            vectors_config=VectorParams(size=embedding_dimensions(), distance=Distance.COSINE),
         )
-    return QdrantVectorStore(client=client, collection_name=config.COLLECTION_NAME, embedding=embeddings)
+    return QdrantVectorStore(client=client, collection_name=name, embedding=embeddings)
 
 
-def build_embeddings() -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(model=config.EMBEDDING_MODEL, api_key=config.OPENAI_API_KEY)
+def build_embeddings():
+    """Construct Cohere document/query embeddings for the local Qdrant index."""
+    embedding_dimensions()
+    if config.EMBEDDING_PROVIDER == "cohere":
+        if not config.COHERE_API_KEY:
+            raise RuntimeError("COHERE_API_KEY is required when EMBEDDING_PROVIDER=cohere")
+        return CohereEmbeddings(
+            model=config.COHERE_EMBEDDING_MODEL,
+            cohere_api_key=config.COHERE_API_KEY,
+        )
+    raise ValueError("EMBEDDING_PROVIDER must be 'cohere'")
 
 
 def split_parents(text: str, source: str) -> list[Document]:
@@ -70,6 +98,11 @@ def load_all_children(docstore) -> list[Document]:
 
 def is_indexed(docstore) -> bool:
     return next(iter(docstore.yield_keys()), None) is not None
+
+
+def is_vector_indexed(vector_store: QdrantVectorStore) -> bool:
+    """Check that the configured embedding collection has vectors to query."""
+    return vector_store.client.count(collection_name=vector_store.collection_name, exact=True).count > 0
 
 
 def ingest_documents(docs_dir: Path, vector_store: QdrantVectorStore, docstore) -> int:

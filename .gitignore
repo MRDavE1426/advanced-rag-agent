@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.pytest-temp-*/
 data/qdrant/
 data/parents/
 data/mem0/

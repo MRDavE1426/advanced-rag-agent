@@ -1,8 +1,14 @@
 """Long-term semantic memory backed by Mem0 (facts persisted per user_id)."""
-from mem0 import Memory
+import os
 
 from app import config
 
+# Mem0 creates a global config directory as soon as it is imported. Keep that
+# state with the application's ignored, persistent data instead of assuming the
+# current user's home directory is writable (important on managed Windows hosts).
+os.environ.setdefault("MEM0_DIR", str(config.MEM0_PATH / "client"))
+
+from mem0 import Memory
 
 class SemanticMemory:
     def __init__(self) -> None:
@@ -14,16 +20,24 @@ class SemanticMemory:
                     "config": {
                         "collection_name": "user_memories",
                         "path": str(config.MEM0_PATH / "qdrant"),
-                        "embedding_model_dims": 1536,
+                        "embedding_model_dims": 768,
                     },
                 },
                 "llm": {
-                    "provider": "openai",
-                    "config": {"model": config.CHAT_MODEL, "temperature": 0, "api_key": config.OPENAI_API_KEY},
+                    "provider": "gemini",
+                    "config": {
+                        "model": config.GEMINI_MEMORY_MODEL,
+                        "temperature": 0,
+                        "api_key": config.GEMINI_API_KEY,
+                    },
                 },
                 "embedder": {
-                    "provider": "openai",
-                    "config": {"model": config.EMBEDDING_MODEL, "api_key": config.OPENAI_API_KEY},
+                    "provider": "gemini",
+                    "config": {
+                        "model": config.GEMINI_EMBEDDING_MODEL,
+                        "embedding_dims": 768,
+                        "api_key": config.GEMINI_API_KEY,
+                    },
                 },
                 "history_db_path": str(config.MEM0_PATH / "history.db"),
             }

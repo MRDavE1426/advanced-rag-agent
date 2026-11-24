@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 
 from app import config
@@ -14,6 +14,7 @@ from app.ingestion import (
     build_vector_store,
     ingest_documents,
     is_indexed,
+    is_vector_indexed,
     load_all_children,
 )
 from app.memory import SemanticMemory
@@ -28,16 +29,20 @@ class ChatRequest(BaseModel):
 
 
 def build_agent() -> RAGAgent:
-    if not config.OPENAI_API_KEY or not config.COHERE_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY and COHERE_API_KEY must be set in .env (see .env.example)")
+    if not config.GEMINI_API_KEY or not config.COHERE_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY and COHERE_API_KEY must be set in .env (see .env.example)")
 
     docstore = build_docstore()
     vector_store = build_vector_store(build_qdrant_client(), build_embeddings())
-    if not is_indexed(docstore):  # automated ingestion on first start
+    if not is_indexed(docstore) or not is_vector_indexed(vector_store):  # handle provider-specific empty indexes
         ingest_documents(config.DOCS_DIR, vector_store, docstore)
 
     retriever = build_hybrid_retriever(vector_store, docstore, load_all_children(docstore))
-    llm = ChatOpenAI(model=config.CHAT_MODEL, temperature=0, api_key=config.OPENAI_API_KEY)
+    llm = ChatGoogleGenerativeAI(
+        model=config.GEMINI_CHAT_MODEL,
+        temperature=0,
+        google_api_key=config.GEMINI_API_KEY,
+    )
     return RAGAgent(retriever, build_compressor(), SemanticMemory(), llm)
 
 
