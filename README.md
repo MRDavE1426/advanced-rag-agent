@@ -43,10 +43,12 @@ main.py          uvicorn entry point
    optional; leave it empty for persistent local Qdrant. Mem0's local Qdrant store and history
    database are kept under `data/mem0/`. Cohere's collection is separate from any prior embedding
    collection.
-2. Install dependencies: `pip install -r requirements.txt` (Python 3.10+; Python 3.13 was used for
-   the verification run)
+2. Use Python 3.13 for this dependency set. It targets LangChain 0.3.x (`langchain<1`); a global
+   Python 3.14 environment with LangChain 1.x is incompatible. Install into the project virtual
+   environment with `.venv\Scripts\python.exe -m pip install -r requirements.txt`.
 3. Run FastAPI: `uvicorn main:app --reload`
-4. Run tests: `pytest` (no API keys needed, external calls are mocked)
+4. Run tests with the project interpreter: `.venv\Scripts\python.exe -m pytest -v` (no API keys
+   needed; external calls in the unit/API-contract suite are mocked)
 
 To index your own documents, put `.md`/`.txt` files in `data/docs/` and delete `data/parents/` and
 `data/qdrant/` before starting the server.
